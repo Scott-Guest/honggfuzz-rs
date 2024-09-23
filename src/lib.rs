@@ -214,6 +214,11 @@ extern "C" {
     fn HF_ITER(buf_ptr: *mut *const u8, len_ptr: *mut usize );
 }
 
+#[cfg(all(fuzzing, not(fuzzing_debug)))]
+extern "C" {
+    fn HF_SCORE_ONE_INPUT(score: u64);
+}
+
 /// Fuzz a closure by passing it a `&[u8]`
 ///
 /// This slice contains a "random" quantity of "random" data.
@@ -239,7 +244,7 @@ extern "C" {
 /// ```
 #[cfg(not(fuzzing))]
 #[allow(unused_variables)]
-pub fn fuzz<F>(closure: F) where F: FnOnce(&[u8]) {
+pub fn fuzz<F>(closure: F) where F: FnOnce(&[u8]) -> u64 {
     eprintln!("This executable hasn't been built with \"cargo hfuzz\".");
     eprintln!("Try executing \"cargo hfuzz build\" and check out \"hfuzz_target\" directory.");
     eprintln!("Or execute \"cargo hfuzz run TARGET\"");
@@ -259,7 +264,7 @@ lazy_static::lazy_static! {
 }
 
 #[cfg(all(fuzzing, not(fuzzing_debug)))]
-pub fn fuzz<F>(closure: F) where F: FnOnce(&[u8]) {
+pub fn fuzz<F>(closure: F) where F: FnOnce(&[u8]) -> u64 {
     use std::mem::MaybeUninit;
 
     // sets panic hook if not already done
@@ -283,7 +288,10 @@ pub fn fuzz<F>(closure: F) where F: FnOnce(&[u8]) {
     // The closure is assumed to be unwind-safe, which might be unsafe. For more info, check the
     // [`std::panic::UnwindSafe`] trait.
     let did_panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        closure(buf);
+        let score = closure(buf);
+        unsafe {
+            HF_SCORE_ONE_INPUT(score);
+        }
     })).is_err();
 
     if did_panic {
@@ -294,7 +302,7 @@ pub fn fuzz<F>(closure: F) where F: FnOnce(&[u8]) {
 }
 
 #[cfg(all(fuzzing, fuzzing_debug))]
-pub fn fuzz<F>(closure: F) where F: FnOnce(&[u8]) {
+pub fn fuzz<F>(closure: F) where F: FnOnce(&[u8]) -> u64 {
     use std::env;
     use std::fs::File;
     use memmap2::MmapOptions;
